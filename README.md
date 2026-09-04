@@ -1,4 +1,5 @@
 # Mandate Kernel
+![eval](https://github.com/Manasa1029/mandate-kernel/actions/workflows/ci.yml/badge.svg)
 
 **A deterministic policy kernel for agent-initiated payments.**
 An LLM may *propose* a payment. It may never *make* one.
