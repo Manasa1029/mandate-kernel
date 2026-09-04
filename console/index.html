@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandate Kernel — Audit Console</title>
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#12151a; --panel-2:#171b21; --line:#232833;
+    --fg:#e6e9ef; --dim:#8b93a3; --dimmer:#5d6675;
+    --allow:#3fbf7f; --deny:#e5484d; --warn:#f5a524; --info:#5b8def;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 20px;
+         border-bottom:1px solid var(--line);background:var(--panel);
+         position:sticky;top:0;z-index:10;flex-wrap:wrap}
+  h1{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em}
+  h1 span{color:var(--dimmer);font-weight:400}
+  .pill{font:11px/1 var(--mono);padding:5px 9px;border-radius:99px;
+        border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+  .pill.ok{color:var(--allow);border-color:color-mix(in srgb,var(--allow) 40%,transparent)}
+  .pill.bad{color:var(--deny);border-color:color-mix(in srgb,var(--deny) 40%,transparent)}
+  .grow{flex:1}
+  input,button,select{font:inherit;background:var(--panel-2);color:var(--fg);
+        border:1px solid var(--line);border-radius:7px;padding:6px 10px}
+  button{cursor:pointer}
+  button:hover{border-color:var(--dimmer)}
+  main{display:grid;grid-template-columns:minmax(420px,1.1fr) minmax(380px,1fr);
+       gap:1px;background:var(--line);min-height:calc(100vh - 57px)}
+  section{background:var(--bg);padding:16px 20px;min-width:0}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dimmer);
+     margin:0 0 12px;font-weight:600}
+  .row{border:1px solid var(--line);border-left-width:3px;border-radius:8px;
+       padding:9px 12px;margin-bottom:7px;cursor:pointer;background:var(--panel);
+       display:grid;grid-template-columns:38px 1fr auto;gap:10px;align-items:baseline}
+  .row:hover{background:var(--panel-2)}
+  .row.sel{border-color:var(--info);background:var(--panel-2)}
+  .row.allow{border-left-color:var(--allow)}
+  .row.deny{border-left-color:var(--deny)}
+  .row.warn{border-left-color:var(--warn)}
+  .row.neutral{border-left-color:var(--line)}
+  .seq{font:11px var(--mono);color:var(--dimmer)}
+  .kind{font:12px var(--mono);color:var(--fg);overflow-wrap:anywhere}
+  .meta{font:11px var(--mono);color:var(--dim);text-align:right;white-space:nowrap}
+  .reason{font:11px var(--mono);color:var(--deny)}
+  .gates{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px}
+  .gate{font:11px/1 var(--mono);padding:6px 8px;border-radius:6px;border:1px solid var(--line);
+        background:var(--panel)}
+  .gate.allow{color:var(--allow);border-color:color-mix(in srgb,var(--allow) 35%,transparent)}
+  .gate.deny{color:var(--deny);border-color:color-mix(in srgb,var(--deny) 35%,transparent)}
+  .gate.skip{color:var(--dimmer)}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+      padding:12px;overflow:auto;font:12px/1.55 var(--mono);margin:0 0 10px;max-height:none}
+  .empty{color:var(--dimmer);font-style:italic;padding:24px 0}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font:12px var(--mono);
+      margin-bottom:14px}
+  .kv b{color:var(--dim);font-weight:400}
+  footer{padding:12px 20px;border-top:1px solid var(--line);color:var(--dimmer);font-size:12px}
+  @media (max-width:900px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Mandate Kernel <span>/ audit console</span></h1>
+  <span class="pill" id="chain">chain: …</span>
+  <span class="pill" id="prov">provider: …</span>
+  <span class="pill" id="kill">kill switch: …</span>
+  <span class="grow"></span>
+  <input id="api" value="http://127.0.0.1:8000" size="22" aria-label="API base URL">
+  <select id="filter" aria-label="Filter entries">
+    <option value="">all events</option>
+    <option value="verdict">verdicts only</option>
+    <option value="deny">denials only</option>
+    <option value="exec">execution only</option>
+    <option value="mandate">mandates only</option>
+  </select>
+  <button id="refresh">Refresh</button>
+  <button id="auto">Auto: off</button>
+</header>
+
+<main>
+  <section>
+    <h2>Ledger <span id="count" style="color:var(--dimmer)"></span></h2>
+    <div id="list"><div class="empty">Loading…</div></div>
+  </section>
+  <section>
+    <h2>Detail</h2>
+    <div id="detail"><div class="empty">Select a ledger entry.</div></div>
+  </section>
+</main>
+
+<footer>
+  Every entry is hash-chained to its predecessor. <code>chain: intact</code> means the
+  whole history verifies from genesis; if a single byte of any payload were edited,
+  the seq of the first broken link would appear here instead.
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = () => $("#api").value.replace(/\/+$/, "");
+let entries = [], selected = null, timer = null;
+
+const GATES = ["schema","signature","freshness","budget","allowlist",
+               "price_binding","velocity","idempotency"];
+
+async function get(path){
+  const r = await fetch(api() + path);
+  if(!r.ok && r.status !== 403 && r.status !== 404) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
+
+function classify(kind, payload){
+  const k = (kind || "").toLowerCase();
+  const d = JSON.stringify(payload || {}).toLowerCase();
+  if(k.includes("deny") || d.includes('"decision": "deny"')) return "deny";
+  if(k.includes("allow") || k.includes("success") || k.includes("fulfil")) return "allow";
+  if(k.includes("freeze") || k.includes("kill") || k.includes("revoke") ||
+     k.includes("compensat") || k.includes("stop")) return "warn";
+  return "neutral";
+}
+
+function esc(s){ return String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])); }
+function rupees(p){ return "₹" + (Number(p)/100).toLocaleString("en-IN",{minimumFractionDigits:2}); }
+
+async function loadHealth(){
+  try{
+    const h = await get("/healthz");
+    $("#chain").textContent = "chain: " + (h.ledger_intact ? "intact" : "BROKEN @ " + h.bad_seq);
+    $("#chain").className = "pill " + (h.ledger_intact ? "ok" : "bad");
+    $("#prov").textContent = "provider: " + h.provider;
+    $("#kill").textContent = "kill switch: " + (h.kill_switch ? "ENGAGED" : "off");
+    $("#kill").className = "pill " + (h.kill_switch ? "bad" : "");
+  }catch(e){
+    $("#chain").textContent = "chain: unreachable";
+    $("#chain").className = "pill bad";
+  }
+}
+
+function matches(e){
+  const f = $("#filter").value;
+  if(!f) return true;
+  if(f === "deny") return classify(e.kind, e.payload) === "deny";
+  return (e.kind || "").toLowerCase().startsWith(f);
+}
+
+async function loadLedger(){
+  try{
+    const data = await get("/v1/ledger?limit=300");
+    entries = data.entries || [];
+  }catch(e){
+    $("#list").innerHTML = '<div class="empty">Cannot reach ' + esc(api()) +
+      ' — start the API with <code>make api</code>.</div>';
+    return;
+  }
+  const shown = entries.filter(matches);
+  $("#count").textContent = shown.length + " / " + entries.length;
+  if(!shown.length){ $("#list").innerHTML = '<div class="empty">Nothing matches this filter.</div>'; return; }
+
+  $("#list").innerHTML = shown.map(e => {
+    const cls = classify(e.kind, e.payload);
+    const p = e.payload || {};
+    const reason = p.reason || (p.verdict && p.verdict.reason) || "";
+    const amt = p.amount_paise ?? (p.action && p.action.amount_paise);
+    return `<div class="row ${cls} ${selected === e.seq ? "sel" : ""}" data-seq="${e.seq}">
+      <span class="seq">#${e.seq}</span>
+      <span>
+        <span class="kind">${esc(e.kind)}</span>
+        ${reason ? `<br><span class="reason">${esc(reason)}</span>` : ""}
+      </span>
+      <span class="meta">
+        ${amt != null ? rupees(amt) + "<br>" : ""}
+        ${new Date(e.ts * 1000).toLocaleTimeString()}
+      </span>
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".row").forEach(el =>
+    el.onclick = () => select(Number(el.dataset.seq)));
+}
+
+async function select(seq){
+  selected = seq;
+  const entry = entries.find(e => e.seq === seq);
+  if(!entry) return;
+  await loadLedger();
+
+  const p = entry.payload || {};
+  const verdict = p.verdict || (p.decision ? p : null);
+  let html = `<div class="kv">
+    <b>seq</b><span>#${entry.seq}</span>
+    <b>kind</b><span>${esc(entry.kind)}</span>
+    <b>time</b><span>${new Date(entry.ts * 1000).toISOString()}</span>
+    <b>mandate</b><span>${esc(entry.mandate_id || "—")}</span>
+    <b>action</b><span>${esc(entry.action_id || "—")}</span>
+  </div>`;
+
+  if(verdict && verdict.gates){
+    html += `<h2>Gate trail</h2><div class="gates">` + GATES.map((name, i) => {
+      const g = (verdict.gates || []).find(x => x.gate === name);
+      const dec = g ? g.decision : "skip";
+      const us = g && g.elapsed_us != null ? ` ${g.elapsed_us}µs` : "";
+      // A gate with no entry was never reached: the pipeline short-circuits on the
+      // first denial, so "skip" is information, not a gap in the log.
+      const tip = g ? (g.detail || g.reason || "") : "not reached (pipeline short-circuited)";
+      return `<span class="gate ${dec === "allow" ? "allow" : dec === "deny" ? "deny" : "skip"}"
+                    title="${esc(tip)}">${i + 1} ${name}${us}</span>`;
+    }).join("") + `</div>`;
+  }
+
+  if(entry.action_id){
+    try{
+      const t = await get("/v1/trace/" + entry.action_id);
+      if(t.entries){
+        html += `<h2>Full trace for this action</h2>` + t.entries.map(e =>
+          `<div class="row ${classify(e.kind, e.payload)}" style="cursor:default">
+             <span class="seq">#${e.seq}</span>
+             <span class="kind">${esc(e.kind)}</span>
+             <span class="meta">${new Date(e.ts * 1000).toLocaleTimeString()}</span>
+           </div>`).join("");
+      }
+    }catch(_){ /* 404 is fine: not every entry has an action */ }
+  }
+
+  html += `<h2>Payload</h2><pre>${esc(JSON.stringify(p, null, 2))}</pre>`;
+  $("#detail").innerHTML = html;
+}
+
+async function refresh(){ await Promise.all([loadHealth(), loadLedger()]); }
+
+$("#refresh").onclick = refresh;
+$("#filter").onchange = loadLedger;
+$("#api").onchange = refresh;
+$("#auto").onclick = () => {
+  if(timer){ clearInterval(timer); timer = null; $("#auto").textContent = "Auto: off"; }
+  else { timer = setInterval(refresh, 3000); $("#auto").textContent = "Auto: 3s"; }
+};
+refresh();
+</script>
+</body>
+</html>

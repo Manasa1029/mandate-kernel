@@ -1,0 +1,60 @@
+name: eval
+
+# Runs the same three suites `make eval` runs locally: pytest, the red-team
+# corpus, and the injection eval. Nothing here needs an API key or a network
+# call — the default planner is deterministic and the default provider is the
+# in-process mock, so this is exactly as reproducible in CI as it is on a
+# judge's laptop.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: make install-dev
+
+      - name: Run test suite
+        run: make test
+
+      - name: Run adversarial corpus
+        run: make redteam
+
+      - name: Run prompt-injection eval
+        run: make injection
+
+      # `redteam.runner` and `redteam.injection` already exit non-zero on any
+      # regression (a benign case denied, an attack that got through), so a
+      # red X on this workflow means a real metric moved, not a docs mismatch.
+      # We don't diff docs/EVALUATION.md against the committed copy: its
+      # latency figures are host- and run-dependent by design (see the
+      # "Honest limitations" note at the bottom of that file), so a byte-exact
+      # diff would fail on every run for a reason that has nothing to do with
+      # correctness. The freshly generated reports are uploaded below instead,
+      # so anyone reviewing a run can see exactly what this host measured.
+      - name: Upload evaluation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-reports-py${{ matrix.python-version }}
+          path: |
+            docs/EVALUATION.md
+            docs/redteam_results.json
+            docs/injection_results.json

@@ -1,0 +1,25 @@
+# secrets — the only line in this file that really matters
+.env
+*.pem
+*.key
+
+# ledger and its SQLite sidecars
+*.db
+*.db-wal
+*.db-shm
+kernel.db*
+demo.db*
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store

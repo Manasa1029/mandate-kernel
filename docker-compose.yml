@@ -1,0 +1,42 @@
+name: mandate-kernel
+
+services:
+  kernel:
+    build: .
+    image: mandate-kernel:latest
+    ports: ["8000:8000"]
+    environment:
+      KERNEL_DB_PATH: /data/kernel.db
+      RAZORPAY_MODE: ${RAZORPAY_MODE:-mock}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      KERNEL_MAX_ATTEMPTS: ${KERNEL_MAX_ATTEMPTS:-3}
+      KEY_SEED: ${KEY_SEED:-mandate-kernel-demo-seed}
+    volumes:
+      - ledger:/data
+    restart: unless-stopped
+
+  seller:
+    image: mandate-kernel:latest
+    depends_on: [kernel]
+    ports: ["8100:8100"]
+    command: ["python", "-m", "uvicorn", "seller.app:app", "--host", "0.0.0.0", "--port", "8100"]
+    environment:
+      KERNEL_DB_PATH: /data/seller.db
+    volumes:
+      - ledger:/data
+    restart: unless-stopped
+
+  console:
+    image: mandate-kernel:latest
+    depends_on: [kernel]
+    ports: ["8080:8080"]
+    # Static files only. The console is a read-only viewer over /v1/ledger; it
+    # holds no credentials and needs no backend of its own.
+    command: ["python", "-m", "http.server", "8080", "--directory", "console"]
+    restart: unless-stopped
+
+volumes:
+  # A named volume, not a bind mount: the ledger must survive `docker compose down`.
+  ledger:

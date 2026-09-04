@@ -1,0 +1,34 @@
+# Mandate Kernel — runtime dependencies
+# Pinned to the versions the suite was actually verified against on Python 3.14.
+# Lower bounds are given as `>=` on the two libraries whose APIs we only touch
+# lightly, and exact pins on everything on the money path.
+
+# --- crypto: Ed25519 signing and verification (libsodium bindings)
+PyNaCl==1.6.2
+
+# --- models and validation: StrictInt is a load-bearing security control here
+pydantic==2.12.5
+
+# --- HTTP service
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+
+# --- provider calls (real Razorpay REST adapter)
+httpx==0.28.1
+
+# --- agent orchestration: the graph, its interrupt, and its checkpointer
+langgraph==1.2.11
+langchain-core==1.6.0
+
+# --- config
+python-dotenv==1.2.3
+PyYAML==6.0.3
+
+# --- OPTIONAL model providers. The kernel and the whole test suite run without
+# these; the DeterministicPlanner is the default. Install one to run the LLM
+# planner. Both are pulled in by `make install-llm`.
+# langchain-anthropic>=0.3
+# langchain-openai>=0.3
+
+# --- OPTIONAL MCP server (seller/mcp_server.py speaks stdio MCP)
+# mcp>=1.2
